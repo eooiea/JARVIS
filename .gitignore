@@ -1,0 +1,40 @@
+# Environments & Dependencies
+.venv/
+venv/
+ENV/
+env/
+
+# Python Cache & Testing
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local Configurations, Keys & Secrets (CRITICAL)
+config/.env
+.env
+*.env
+*.env.*
+*.key
+*.pem
+*.secret
+secrets*
+credentials*
+service_account*.json
+
+# JARVIS Internal Staging & Session Outputs
+.jarvis/
+scratch/
+outputs/
+logs/
+my_test_outputs/
+*.xlsx
+*.log
+
+# IDE & OS Specific
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

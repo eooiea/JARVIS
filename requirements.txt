@@ -1,0 +1,25 @@
+# AI & LLM Providers
+google-genai>=1.0.0
+ollama>=0.4.0
+
+# Vision & Screen Perception
+mss>=9.0.0
+pillow>=10.0.0
+
+# Office & File Automation
+openpyxl>=3.1.0
+pypdf>=5.0.0
+
+# Windows Desktop Controller & GUI
+pyautogui>=0.9.54
+keyboard>=0.13.5
+
+# Configuration & Utilities
+pydantic>=2.7.0
+pyyaml>=6.0.1
+python-dotenv>=1.0.1
+rich>=13.7.0
+
+# Testing Suite (TDD)
+pytest>=8.0.0
+pytest-mock>=3.14.0

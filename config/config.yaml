@@ -1,0 +1,37 @@
+# JARVIS System Configuration
+
+system:
+  name: "JARVIS"
+  output_dir: "outputs"
+  log_level: "INFO"
+
+# LLM Providers Configuration
+llm:
+  default_provider: "ollama" # "gemini" or "ollama"
+  
+  # Google Gemini Cloud API
+  gemini:
+    model: "gemini-2.5-flash"
+    complex_model: "gemini-2.5-pro"
+    temperature: 0.2
+  
+  # Ollama Local Engine (RTX 4070 Super 12GB Default)
+  ollama:
+    host: "http://localhost:11434"
+    model: "qwen2.5:14b"
+    vision_model: "llava-llama3:latest"
+    # Alternative downgrade options:
+    # model: "qwen2.5:7b"     # 8GB VRAM
+    # model: "llama3.2:3b"     # 4GB VRAM / CPU Mode
+    temperature: 0.2
+
+# Desktop Controller & Automation
+controller:
+  action_delay: 0.2          # Seconds between mouse/keyboard actions
+  failsafe: true             # PyAutoGUI screen corner failsafe
+  killswitch_key: "ctrl+alt+s" # Emergency stop hotkey
+
+# Office & Excel Automation
+office:
+  default_sheet_name: "Data"
+  auto_numbering: true       # Auto-number duplicated output files (e.g. file_(1).xlsx)
