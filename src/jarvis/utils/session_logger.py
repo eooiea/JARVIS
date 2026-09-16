@@ -73,41 +73,12 @@ class SessionLogger:
         key_findings: Optional[Dict[str, Any]] = None,
         taboo_list: Optional[list] = None,
     ):
-        """Record agent's reasoning and the exact raw injected blackboard state."""
-        lines = []
-        if raw_blackboard:
-            fence = "````"
-            while fence in raw_blackboard:
-                fence += "`"
-            lines.append("### 📋 [주입된 작업 칠판 원문 (Injected Raw Blackboard)]")
-            lines.append(f"{fence}text\n{raw_blackboard.strip()}\n{fence}")
-        else:
-            lines.append("### 📋 [작업 칠판 (Working Blackboard)]")
-            lines.append(f"- **현재 단계 (Phase)**: `{phase or 'INIT'}`")
-
-            lines.append("- **마일스톤 진행 현황 (Milestones)**:")
-            if milestones:
-                for m in milestones:
-                    lines.append(f"  - {m}")
-            else:
-                lines.append("  - (등록된 마일스톤 없음)")
-
-            lines.append("- **핵심 발견 사항 (Key Findings)**:")
-            if key_findings:
-                for k, v in key_findings.items():
-                    lines.append(f"  - `{k}`: {v}")
-            else:
-                lines.append("  - (수집된 발견 사항 없음)")
-
-            lines.append("- **금지 규칙 (Taboo List)**:")
-            if taboo_list:
-                for t in taboo_list:
-                    lines.append(f"  - 🚫 {t}")
-            else:
-                lines.append("  - (없음)")
-
-        lines.append(f"\n> 💭 **AI 판단 (Thought)**: {thought}\n")
+        """Record agent's reasoning and thought."""
+        lines = [
+            f"### 🧠 [Agent Thought]\n> 💭 {thought}\n"
+        ]
         self._append("\n".join(lines))
+
 
     def log_backtracking(
         self,

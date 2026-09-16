@@ -15,14 +15,15 @@ def test_session_logger_creates_file(tmp_path: Path):
 
 
 def test_session_logger_records_full_raw_events(tmp_path: Path):
-    """SessionLogger should record thoughts, tool calls, and observations with 100% full fidelity."""
+    """SessionLogger should record turns, raw prompts, raw responses, thoughts, tool calls, and completion in exact layout."""
     logger = SessionLogger(log_dir=tmp_path, instruction="테스트 명령")
 
     logger.log_turn_start(turn=1)
     logger.log_llm_exchange(
-        prompt="[System]: Hello\n[User]: Run scan",
+        prompt="[System Prompt Full Text]\n[User]: Run scan",
         raw_response='{"thought": "스캔 시작", "tool_calls": [{"name": "scan_directory"}]}',
     )
+    logger.log_thought(thought="스캔 시작")
     logger.log_tool_execution(
         tool_name="scan_directory",
         args={"path": "C:/demo", "recursive": True},
@@ -35,11 +36,27 @@ def test_session_logger_records_full_raw_events(tmp_path: Path):
     content = logger.log_file.read_text(encoding="utf-8")
 
     assert "테스트 명령" in content
+    assert "## 🔄 [Turn 1]" in content
+    assert "### 📤 [LLM Input Prompt (Raw)]" in content
+    assert "[System Prompt Full Text]" in content
+    assert "### 📥 [LLM Output Response (Raw)]" in content
+    assert "### 🧠 [Agent Thought]" in content
     assert "스캔 시작" in content
-    assert "scan_directory" in content
+    assert "### 🛠️ [Tool Execution: `scan_directory`]" in content
     assert "C:/demo" in content
     assert "10 files found" in content
+    assert "## 🏁 [Task Final Completion]" in content
     assert "작업이 무사히 완결되었습니다" in content
+
+    # Verify exact sequential ordering
+    idx_turn = content.index("## 🔄 [Turn 1]")
+    idx_prompt = content.index("### 📤 [LLM Input Prompt (Raw)]")
+    idx_resp = content.index("### 📥 [LLM Output Response (Raw)]")
+    idx_thought = content.index("### 🧠 [Agent Thought]")
+    idx_tool = content.index("### 🛠️ [Tool Execution: `scan_directory`]")
+    idx_comp = content.index("## 🏁 [Task Final Completion]")
+
+    assert idx_turn < idx_prompt < idx_resp < idx_thought < idx_tool < idx_comp
 
 
 def test_session_logger_unique_filenames_per_session(tmp_path: Path):
@@ -53,25 +70,11 @@ def test_session_logger_unique_filenames_per_session(tmp_path: Path):
 
 
 def test_session_logger_records_thought_and_backtracking(tmp_path: Path):
-    """SessionLogger should record thoughts, raw blackboard state, and backtracking rollbacks."""
+    """SessionLogger should record clean thoughts, tool traces, and backtracking rollbacks."""
     logger = SessionLogger(log_dir=tmp_path, instruction="장애 복구 테스트")
 
     logger.log_turn_start(turn=1)
-    raw_bb = (
-        "📋 [JARVIS CURRENT WORKING BLACKBOARD]\n"
-        "- Phase: PLANNING\n"
-        "- Milestones:\n"
-        "  [1] 탐색: DONE\n"
-        "  [2] 분석: IN_PROGRESS\n"
-        "- Key Findings:\n"
-        "  target_file: README.md\n"
-        "- [🚨 절대 금지 규칙 - Taboo List (절대 재시도 금지)]:\n"
-        "  - 🚫 실패: 존재하지않는파일_9999.txt 접근 시도 금지"
-    )
-    logger.log_thought(
-        thought="README.md를 먼저 탐색합니다.",
-        raw_blackboard=raw_bb,
-    )
+    logger.log_thought(thought="README.md를 먼저 탐색합니다.")
     logger.log_backtracking(
         reason="파일이 존재하지 않아 대안 경로로 롤백합니다.",
         rollback_turn=0,
@@ -80,8 +83,8 @@ def test_session_logger_records_thought_and_backtracking(tmp_path: Path):
 
     content = logger.log_file.read_text(encoding="utf-8")
     assert "README.md를 먼저 탐색합니다." in content
-    assert "📋 [JARVIS CURRENT WORKING BLACKBOARD]" in content
-    assert "target_file: README.md" in content
+    assert "### 🧠 [Agent Thought]" in content
     assert "롤백" in content or "Backtracking" in content
     assert "존재하지않는파일_9999.txt 접근 시도 금지" in content
+
 

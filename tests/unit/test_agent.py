@@ -63,3 +63,64 @@ def test_agent_max_turns_safeguard():
 
     assert "최대 실행 횟수" in final_output or "중단" in final_output
     assert mock_provider.chat_with_tools.call_count == 3
+
+
+def test_agent_logs_full_execution_trace(tmp_path):
+    """Agent must log turn, raw prompt, raw response, thought, tool execution, and completion into session_logger."""
+    from jarvis.utils.session_logger import SessionLogger
+
+    registry = ToolRegistry()
+
+    def dummy_tool(query: str):
+        """Dummy tool."""
+        return "조회 성공: " + query
+
+    registry.register(dummy_tool)
+
+    session_logger = SessionLogger(log_dir=tmp_path, instruction="실행 추적 테스트")
+
+    mock_provider = MagicMock()
+    mock_provider.chat_with_tools.side_effect = [
+        AgentResponse(
+            thought="더미 도구를 호출합니다.",
+            tool_calls=[ToolCall(name="dummy_tool", args={"query": "데이터"})],
+            text=None,
+        ),
+        AgentResponse(
+            thought="작업이 끝났습니다.",
+            tool_calls=[],
+            text="최종 보고서 완료",
+        ),
+    ]
+
+    agent = JarvisAgent(
+        provider=mock_provider,
+        tool_registry=registry,
+        session_logger=session_logger,
+        max_turns=3,
+    )
+    final_output = agent.run("실행 추적 테스트")
+    assert "최종 보고서 완료" in final_output
+
+    content = session_logger.log_file.read_text(encoding="utf-8")
+
+    # Verify user requested layout sections exist
+    assert "## 🔄 [Turn 1]" in content
+    assert "### 📤 [LLM Input Prompt (Raw)]" in content
+    assert "### 📥 [LLM Output Response (Raw)]" in content
+    assert "### 🧠 [Agent Thought]" in content
+    assert "더미 도구를 호출합니다." in content
+    assert "### 🛠️ [Tool Execution: `dummy_tool`]" in content
+    assert "## 🏁 [Task Final Completion]" in content
+    assert "최종 보고서 완료" in content
+
+    # Verify exact layout sequence
+    idx_turn = content.index("## 🔄 [Turn 1]")
+    idx_prompt = content.index("### 📤 [LLM Input Prompt (Raw)]")
+    idx_resp = content.index("### 📥 [LLM Output Response (Raw)]")
+    idx_thought = content.index("### 🧠 [Agent Thought]")
+    idx_tool = content.index("### 🛠️ [Tool Execution: `dummy_tool`]")
+    idx_comp = content.index("## 🏁 [Task Final Completion]")
+
+    assert idx_turn < idx_prompt < idx_resp < idx_thought < idx_tool < idx_comp
+

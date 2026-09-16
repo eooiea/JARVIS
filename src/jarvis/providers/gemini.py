@@ -174,11 +174,22 @@ class GeminiProvider(BaseLLMProvider):
             for tc in parsed.get("tool_calls", []):
                 tool_calls.append(ToolCall(name=tc.get("name"), args=tc.get("args", {})))
 
+            full_input_record = f"[SYSTEM INSTRUCTION]:\n{system_instruction}\n\n[USER & CONTEXT PROMPT]:\n{full_prompt}"
             return AgentResponse(
                 thought=thought,
                 tool_calls=tool_calls,
                 text=final_answer,
+                raw_prompt=full_input_record,
+                raw_response=raw_text,
             )
         except Exception as e:
             logger.warning(f"Failed to parse tool call JSON from Gemini ({e}), falling back to direct text.")
-            return AgentResponse(thought="직접 응답", tool_calls=[], text=raw_text if 'raw_text' in locals() else str(e))
+            full_input_record = f"[SYSTEM INSTRUCTION]:\n{system_instruction}\n\n[USER & CONTEXT PROMPT]:\n{full_prompt}" if 'full_prompt' in locals() and 'system_instruction' in locals() else ""
+            return AgentResponse(
+                thought="직접 응답",
+                tool_calls=[],
+                text=raw_text if 'raw_text' in locals() else str(e),
+                raw_prompt=full_input_record,
+                raw_response=raw_text if 'raw_text' in locals() else str(e),
+            )
+

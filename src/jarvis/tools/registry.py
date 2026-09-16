@@ -135,6 +135,8 @@ class ToolRegistry:
         for key, val in args.items():
             if key not in properties:
                 continue
+            if val is None and key not in required:
+                continue
             raw_expected = properties[key].get("type", "string")
             expected_types = raw_expected if isinstance(raw_expected, list) else [raw_expected]
 

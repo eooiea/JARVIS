@@ -1,8 +1,10 @@
 """Autonomous ReAct Agent with Working Memory, Blackboard, and Backtracking Engine."""
 
 import os
+import json
 import time
 from typing import Any, Dict, List, Optional
+
 
 from jarvis.brain.checkpoint import CheckpointManager
 from jarvis.brain.evaluator import HybridEvaluator
@@ -113,6 +115,26 @@ class JarvisAgent:
             tool_schemas = self.registry.get_definitions()
             response: AgentResponse = self.provider.chat_with_tools(messages, tools=tool_schemas)
 
+            # Log raw LLM exchange (Prompt & Output)
+            if self.session_logger:
+                if response.raw_prompt and response.raw_response:
+                    prompt_to_log = response.raw_prompt
+                    resp_to_log = response.raw_response
+                else:
+                    tools_json = json.dumps(tool_schemas, ensure_ascii=False, indent=2)
+                    prompt_to_log = (
+                        f"[SYSTEM INSTRUCTION & BLACKBOARD]:\n{messages[0]['content']}\n\n"
+                        f"[AVAILABLE TOOLS (JSON Schema)]:\n{tools_json}\n\n"
+                        f"[CONVERSATION TURNS]:\n" + "\n".join(f"[{m.get('role', 'user')}]: {m.get('content', '')}" for m in messages[1:])
+                    )
+                    resp_dict = {
+                        "thought": response.thought,
+                        "tool_calls": [{"name": tc.name, "args": tc.args} for tc in response.tool_calls],
+                        "final_answer": response.text,
+                    }
+                    resp_to_log = json.dumps(resp_dict, ensure_ascii=False, indent=2)
+                self.session_logger.log_llm_exchange(prompt=prompt_to_log, raw_response=resp_to_log)
+
             # Dual output parsing
             raw_text = (response.thought or "") + "\n" + (response.text or "")
             parsed = BlackboardOutputParser.parse(raw_text)
@@ -127,10 +149,8 @@ class JarvisAgent:
             if thought:
                 logger.info(f"🧠 Thought: {thought}")
                 if self.session_logger:
-                    self.session_logger.log_thought(
-                        thought=thought,
-                        raw_blackboard=render_blackboard(self.memory),
-                    )
+                    self.session_logger.log_thought(thought=thought)
+
 
             # Check if LLM self-reflection declared DEAD_END without tools
             if blackboard_delta.get("status") == "DEAD_END":

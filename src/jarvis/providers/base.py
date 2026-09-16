@@ -15,6 +15,9 @@ class AgentResponse(BaseModel):
     tool_calls: List[ToolCall] = Field(default_factory=list)
     text: Optional[str] = None
     blackboard_delta: Dict[str, Any] = Field(default_factory=dict)
+    raw_prompt: Optional[str] = None
+    raw_response: Optional[str] = None
+
 
 
 class LLMConnectionError(Exception):

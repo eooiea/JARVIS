@@ -10,7 +10,7 @@ from jarvis.cli.app import JarvisCLI
 from jarvis.tools.registry import ToolRegistry
 from jarvis.tools.filesystem import scan_directory, read_file, write_file
 from jarvis.tools.vision import analyze_document, batch_analyze_documents, capture_screen
-from jarvis.tools.office import create_excel
+from jarvis.tools.office import create_excel, inspect_excel, get_courier_preset, transform_excel, batch_transform_orders
 from jarvis.brain.agent import JarvisAgent
 from jarvis.utils.session_logger import SessionLogger
 from jarvis.guardrails.killswitch import KillSwitch, EmergencyStopException
@@ -129,6 +129,70 @@ class JarvisPipeline:
             temp_path.write_bytes(b)
             return str(temp_path)
 
+        def safe_inspect_excel(file_path: str, max_sample_rows: int = 1) -> Any:
+            """엑셀 파일의 시트 목록, 컬럼 헤더, 샘플 데이터를 최소 토큰으로 빠르게 조회합니다.
+            
+            Args:
+                file_path: 조회할 엑셀 파일 경로.
+                max_sample_rows: 미리보기할 샘플 행 수 (기본 1).
+            """
+            self.permissions.check_permission("read_safe", target_path=file_path)
+            return inspect_excel(file_path, max_sample_rows=max_sample_rows)
+
+        def safe_get_courier_preset(courier_name: str) -> Any:
+            """국내 5대 택배사(CJ대한통운, 우체국택배, 한진택배, 롯데택배, 로젠택배)의 표준 송장 헤더 및 필수 필드 규격을 조회합니다.
+            
+            Args:
+                courier_name: 택배사 명칭 (예: 'CJ대한통운', '우체국', '한진', '롯데', '로젠').
+            """
+            return get_courier_preset(courier_name)
+
+        def safe_transform_excel(
+            source_path: str,
+            mapping_rules: dict,
+            target_schema: Optional[list] = None,
+            required_fields: Optional[list] = None,
+        ) -> Any:
+            """소스 엑셀 데이터를 매핑 규칙에 따라 타깃 헤더 규격으로 초고속 정규화 및 변환합니다.
+            
+            Args:
+                source_path: 변환할 엑셀 파일 경로.
+                mapping_rules: 소스 컬럼 -> 타깃 컬럼 매핑 규칙 (예: {"받는사람": "받는분성명"}).
+                target_schema: 최종 결과 컬럼 순서 리스트.
+                required_fields: 필수 타깃 컬럼 목록 (생략 시 자동 감지).
+            """
+            self.permissions.check_permission("read_safe", target_path=source_path)
+            return transform_excel(
+                source_path=source_path,
+                mapping_rules=mapping_rules,
+                target_schema=target_schema,
+                required_fields=required_fields,
+            )
+
+        def safe_batch_transform_orders(
+            order_dir: str,
+            courier_name: str = "CJ대한통운",
+            output_path: Optional[str] = None,
+            template_path: Optional[str] = None,
+        ) -> Any:
+            """지정된 폴더 내의 모든 다채널 주문 엑셀 파일들을 읽어 대상 택배사 송장 엑셀로 일괄 변환 및 생성합니다.
+            
+            Args:
+                order_dir: 주문 엑셀 파일들이 있는 폴더 경로.
+                courier_name: 변환할 대상 택배사 이름 (예: 'CJ대한통운', '우체국택배', '한진택배', '롯데택배', '로젠택배').
+                output_path: 생성할 송장 엑셀 파일 경로.
+                template_path: 자사 커스텀 템플릿 파일 경로.
+            """
+            self.permissions.check_permission("read_safe", target_path=order_dir)
+            target = output_path or str(self.output_dir / f"{courier_name}_송장.xlsx")
+            self.permissions.check_permission("create_file", target_path=target)
+            return batch_transform_orders(
+                order_dir=order_dir,
+                courier_name=courier_name,
+                output_path=target,
+                template_path=template_path,
+            )
+
         self.registry.register(safe_scan_directory, name="scan_directory")
         self.registry.register(safe_read_file, name="read_file")
         self.registry.register(safe_write_file, name="write_file")
@@ -136,6 +200,14 @@ class JarvisPipeline:
         self.registry.register(safe_analyze_document, name="analyze_document")
         self.registry.register(safe_batch_analyze_documents, name="batch_analyze_documents")
         self.registry.register(safe_capture_screen, name="capture_screen")
+        self.registry.register(safe_inspect_excel, name="inspect_excel")
+        self.registry.register(safe_get_courier_preset, name="get_courier_preset")
+        self.registry.register(safe_get_courier_preset, name="get_courier_standard_preset")
+        self.registry.register(safe_transform_excel, name="transform_excel")
+        self.registry.register(safe_transform_excel, name="transform_excel_to_standard")
+        self.registry.register(safe_transform_excel, name="transform_order_excel")
+        self.registry.register(safe_batch_transform_orders, name="batch_transform_orders")
+        self.registry.register(safe_batch_transform_orders, name="transform_orders_to_invoice")
 
     def execute_instruction(
         self,

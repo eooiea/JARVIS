@@ -190,17 +190,31 @@ class OllamaProvider(BaseLLMProvider):
             for tc in parsed.get("tool_calls", []):
                 tool_calls.append(ToolCall(name=tc.get("name"), args=tc.get("args", {})))
 
+            raw_prompt_str = "\n\n".join(
+                f"[{m.get('role', 'user').upper()}]:\n{m.get('content', '')}"
+                for m in formatted_messages
+            )
+
             return AgentResponse(
                 thought=thought,
                 tool_calls=tool_calls,
                 text=final_answer,
                 blackboard_delta=blackboard,
+                raw_prompt=raw_prompt_str,
+                raw_response=raw_text,
             )
         except Exception as e:
             logger.warning(f"Failed to parse tool call JSON from Ollama ({e}), falling back to direct text.")
+            raw_prompt_str = "\n\n".join(
+                f"[{m.get('role', 'user').upper()}]:\n{m.get('content', '')}"
+                for m in formatted_messages
+            ) if 'formatted_messages' in locals() else ""
             return AgentResponse(
                 thought="직접 응답",
                 tool_calls=[],
                 text=raw_text if 'raw_text' in locals() and raw_text else str(e),
+                raw_prompt=raw_prompt_str,
+                raw_response=raw_text if 'raw_text' in locals() and raw_text else str(e),
             )
+
 
