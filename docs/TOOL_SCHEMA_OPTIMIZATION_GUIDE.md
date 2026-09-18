@@ -43,6 +43,37 @@
 
 ---
 
+## 3.1 실전 심층 사례 분석: 구글 안티그래비티(Google Antigravity)의 아키텍처
+
+실제 안티그래비티 에이전트에 주입되는 시스템 프롬프트를 실측 분석한 결과, 수많은 특화 기능(Android 빌드, Chrome DevTools 디버깅, 웹 접근성, 메모리 누수 분석, TDD 등)을 운영하면서도 **도구 스키마 비대화 문제를 완벽하게 회피하는 3대 핵심 패턴**이 확인되었습니다.
+
+### 1) 마이크로커널(Micro-Kernel) 기본 도구셋 (최소 원자적 도구 14개)
+* 안티그래비티는 도메인별 기능마다 별도의 Tool Schema를 생성하지 않습니다.
+* LLM에게 직접 노출되는 API Tool Schema는 오직 **14개의 기본 원자적 도구**로 극도로 압축되어 있습니다:
+  - 파일/코드 제어: `view_file`, `write_to_file`, `replace_file_content`, `multi_replace_file_content`, `list_dir`, `grep_search`
+  - OS/터미널 제어: `run_command`, `manage_task`
+  - 웹 리서치: `search_web`, `read_url_content`
+  - 에이전트 오케스트레이션: `browser_subagent`, `generate_image`, `schedule`, `ask_question`
+
+### 2) Skills & Plugins의 온디맨드 지연 로딩 (On-Demand Lazy Loading)
+* 수백 개에 달하는 고급 기능과 도메인 가이드는 JSON Schema로 주입되지 않습니다.
+* 프롬프트의 `<skills>` 섹션에는 **이름 + 1~2줄 요약 + 파일 경로(경량 인덱스)**만 등록됩니다:
+  ```markdown
+  Available skills:
+  - a11y-debugging (.../SKILL.md): Uses Chrome DevTools MCP for accessibility...
+  - android-cli (.../SKILL.md): Orchestrates Android development tasks...
+  - chrome-devtools (.../SKILL.md): Uses Chrome DevTools via MCP for debugging...
+  - modern-web-guidance (.../SKILL.md): Search tool for modern web development...
+  ```
+* 시스템 규칙: *"작업과 관련된 스킬이 있다면 실행 전 반드시 `view_file`로 해당 `SKILL.md` 지침을 읽어라."*
+* **효과**: 프롬프트에는 스킬당 단 10~20토큰의 목차만 주입되며, **전체 스키마/지침은 필요할 때만 LLM이 `view_file`을 통해 온디맨드로 인출**하므로 시스템 프롬프트 토큰이 90% 이상 절감됩니다.
+
+### 3) 서브에이전트(Subagent)를 통한 컨텍스트 격리
+* 브라우저 조작처럼 수십 개의 세부 도구(click, type, scroll, DOM 파싱 등)가 필요한 헤비한 작업은 메인 에이전트 프롬프트에 도구를 전부 붙이지 않고, **`browser_subagent`라는 단일 위임 도구만 노출**합니다.
+* 서브에이전트가 격리된 샌드박스에서 자체 도구셋으로 작업을 마친 뒤 **결과 요약본만 메인 에이전트에게 반환**하므로, 메인 에이전트의 컨텍스트 윈도우와 어텐션 품질이 오염되지 않습니다.
+
+---
+
 ## 4. 자비스(JARVIS) 맞춤형 개선 로드맵 (내일 진행 계획)
 
 ### 1단계: Phase 기반 도구 동적 필터링 (Phase-Based Dynamic Tool Injection)
