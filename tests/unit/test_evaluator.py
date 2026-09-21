@@ -158,18 +158,3 @@ class TestHybridEvaluator:
         assert result.passed is False
         assert result.is_dead_end is False
         assert "No such file" in result.reason
-
-    def test_hybrid_catches_llm_self_reflection_dead_end(self):
-        hybrid = HybridEvaluator()
-        result = hybrid.evaluate(
-            tool_name="read_file",
-            args={"path": "scanned.txt"},
-            tool_result="Normal execution but contents are garbage",
-            blackboard_delta={
-                "status": "DEAD_END",
-                "dead_end_reason": "인코딩 손상으로 복구 불가",
-            },
-        )
-        assert result.passed is False
-        assert result.is_dead_end is True
-        assert "인코딩 손상" in result.reason

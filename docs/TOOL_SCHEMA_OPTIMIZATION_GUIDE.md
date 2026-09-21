@@ -1,7 +1,7 @@
 # 🛠️ LLM 도구 스키마 비대화 문제 분석 및 해결 아키텍처 가이드
 
 ## 1. 개요 (Background)
-자비스(JARVIS) 실행 세션 로그([Session Log](file:///c:/Users/majun/Coding/javis/logs)) 분석 결과, 매 ReAct 턴마다 주입되는 시스템 프롬프트 중 **도구 명세 스키마(Tool JSON Schema)**의 비중이 과도하게 커지는 현상이 발견되었습니다.
+자비스(JARVIS) 실행 세션 로그([Session Log](../logs)) 분석 결과, 매 ReAct 턴마다 주입되는 시스템 프롬프트 중 **도구 명세 스키마(Tool JSON Schema)**의 비중이 과도하게 커지는 현상이 발견되었습니다.
 
 현재 14개 내외의 도구만 등록된 상태에서도:
 - 단일 턴 프롬프트의 **약 330라인(전체 프롬프트의 80% 이상)**이 도구 스키마로 채워짐.
@@ -101,7 +101,7 @@ PHASE_TOOL_MAP = {
 ---
 
 ## 5. 참고 파일 및 위치
-- 도구 등록 및 스키마 생성: [`src/jarvis/tools/registry.py`](file:///c:/Users/majun/Coding/javis/src/jarvis/tools/registry.py)
-- 에이전트 루프 및 스키마 주입: [`src/jarvis/brain/agent.py`](file:///c:/Users/majun/Coding/javis/src/jarvis/brain/agent.py)
-- 프로바이더 프롬프트 조립: [`src/jarvis/providers/ollama.py`](file:///c:/Users/majun/Coding/javis/src/jarvis/providers/ollama.py), [`src/jarvis/providers/gemini.py`](file:///c:/Users/majun/Coding/javis/src/jarvis/providers/gemini.py)
-- 실행 로그 검증: [`logs/`](file:///c:/Users/majun/Coding/javis/logs)
+- 도구 등록 및 스키마 생성: [`src/jarvis/tools/registry.py`](../src/jarvis/tools/registry.py)
+- 에이전트 루프 및 스키마 주입: [`src/jarvis/brain/agent.py`](../src/jarvis/brain/agent.py)
+- 프로바이더 프롬프트 조립: [`src/jarvis/providers/ollama.py`](../src/jarvis/providers/ollama.py), [`src/jarvis/providers/gemini.py`](../src/jarvis/providers/gemini.py)
+- 실행 로그 검증: [`logs/`](../logs)

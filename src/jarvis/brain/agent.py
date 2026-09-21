@@ -77,10 +77,9 @@ class JarvisAgent:
             "2. <blackboard>: 작업 칠판 업데이트 내용 (YAML 포맷)\n"
             "   - phase: 현재 단계명\n"
             "   - update_milestones: [{id: 1, status: 'DONE'}, ...] (상태 변경 시만)\n"
-            "   - add_findings: {key: value} (새로운 발견 데이터)\n"
-            "   - status: 'CONTINUE' 또는 막다른 길일 경우 'DEAD_END'\n"
-            "   - dead_end_reason: '막다른 길인 구체적 이유' (status가 DEAD_END일 때만)\n\n"
+            "   - add_findings: {key: value} (새로운 발견 데이터)\n\n"
             "[금지 규칙 및 백트래킹 원칙]\n"
+            "작업 도중 막다른 길에 봉착하거나 실패 시 backtrack(reason=...) 도구를 호출하여 직전 상태로 안전하게 되돌아가십시오.\n"
             "작업 칠판의 Taboo List에 기재된 실패 내역은 이미 실패가 확인된 경로입니다. 절대로 Taboo List의 인자나 도구를 재호출하지 말고 즉시 대안 계획이나 다른 경로를 수행하십시오.\n\n"
             "작업이 성공적으로 완결되면 사용자에게 최종 요약 보고를 제시하고 종료하십시오."
         )
@@ -152,39 +151,40 @@ class JarvisAgent:
                     self.session_logger.log_thought(thought=thought)
 
 
-            # Check if LLM self-reflection declared DEAD_END without tools
-            if blackboard_delta.get("status") == "DEAD_END":
-                dead_end_reason = blackboard_delta.get("dead_end_reason") or "LLM 스스로 막다른 길(DEAD_END) 선언"
-                logger.warning(f"Self-reflection DEAD_END declared: {dead_end_reason}")
-                evaluator.budget_manager.record_failure(self.memory.current_phase)
-
-                if not evaluator.budget_manager.can_retry(self.memory.current_phase):
-                    abort_msg = f"작업 중단: {self.memory.current_phase} 단계에서 재시도 예산 초과 ({dead_end_reason})"
-                    logger.error(abort_msg)
-                    if self.session_logger:
-                        self.session_logger.log_completion(final_answer=abort_msg)
-                    return abort_msg
-
-                # Rollback
-                staging.discard()
-                restored_mem, prune_idx = cp_mgr.rollback_to(failure_reason=dead_end_reason)
-                self.memory = restored_mem
-                messages = messages[:prune_idx]
-                evaluator.rule_evaluator.last_call = None
-                if self.session_logger:
-                    rb_turn = cp_mgr.history[-1].turn if cp_mgr.history else 0
-                    self.session_logger.log_backtracking(
-                        reason=dead_end_reason,
-                        rollback_turn=rb_turn,
-                        taboo_list=self.memory.taboo_list,
-                    )
-                continue
-
             # If LLM requested tool execution
             if response.tool_calls:
                 should_rollback = False
                 for tc in response.tool_calls:
                     logger.info(f"🛠️ Action: Call Tool '{tc.name}' with args {tc.args}")
+
+                    # Explicit backtrack tool call by LLM
+                    if tc.name == "backtrack":
+                        dead_end_reason = tc.args.get("reason") or "LLM backtrack 도구 호출"
+                        logger.warning(f"Backtrack tool called by LLM: {dead_end_reason}")
+                        evaluator.budget_manager.record_failure(self.memory.current_phase)
+
+                        if not evaluator.budget_manager.can_retry(self.memory.current_phase):
+                            abort_msg = f"작업 중단: {self.memory.current_phase} 단계에서 재시도 한도 초과 ({dead_end_reason})"
+                            logger.error(abort_msg)
+                            if self.session_logger:
+                                self.session_logger.log_completion(final_answer=abort_msg)
+                            return abort_msg
+
+                        staging.discard()
+                        restored_mem, prune_idx = cp_mgr.rollback_to(failure_reason=dead_end_reason)
+                        self.memory = restored_mem
+                        messages = messages[:prune_idx]
+                        evaluator.rule_evaluator.last_call = None
+                        if self.session_logger:
+                            rb_turn = cp_mgr.history[-1].turn if cp_mgr.history else 0
+                            self.session_logger.log_backtracking(
+                                reason=dead_end_reason,
+                                rollback_turn=rb_turn,
+                                taboo_list=self.memory.taboo_list,
+                            )
+                        should_rollback = True
+                        break
+
                     t_start = time.time()
 
                     # Execute write/mutation tools in isolated staging, read tools in workspace context

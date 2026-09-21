@@ -147,20 +147,11 @@ class HybridEvaluator:
         blackboard_delta: Optional[Dict[str, Any]] = None,
         staging_dir: Optional[Any] = None,
     ) -> EvaluationResult:
-        """Run 1st-tier deterministic rules, then check 2nd-tier self-reflection."""
-        # 1. Deterministic Rule evaluation
+        """Run deterministic rules to evaluate tool execution validity."""
         passed, reason = self.rule_evaluator.evaluate(
             tool_name, args, tool_result, staging_dir=staging_dir
         )
         if not passed:
             return EvaluationResult(passed=False, reason=reason, is_dead_end=False)
-
-        # 2. LLM Self-reflection evaluation (DEAD_END check)
-        if blackboard_delta and isinstance(blackboard_delta, dict):
-            status = str(blackboard_delta.get("status", "")).strip().upper()
-            if status == "DEAD_END":
-                dead_end_reason = blackboard_delta.get("dead_end_reason") or "LLM 자율 막다른 길(DEAD_END) 선언"
-                logger.warning(f"LLM Self-Reflection triggered DEAD_END: {dead_end_reason}")
-                return EvaluationResult(passed=False, reason=dead_end_reason, is_dead_end=True)
 
         return EvaluationResult(passed=True, reason="PASS", is_dead_end=False)

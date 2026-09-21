@@ -314,6 +314,50 @@ class BlackboardOutputParser:
 
 ---
 
+### 3.7. 이중 백트래킹(Dual Backtracking) 메커니즘과 단축 탈출(Fast-Fail) 트레이드오프 분석
+
+실제 에이전트 실행 환경에서는 **"시스템 레벨 강제 롤백"**과 **"LLM 자율 도구 호출(`backtrack`)"**이 연속으로 발동하는 현상이 관측됩니다.
+
+#### 1. 이중 백트래킹의 상태 공간 트리 (State Space Tree)
+
+```text
+[Turn 0: 초기 루트 노드] - cp_0_init
+ │
+ ├──▶ [Turn 1: 시도 A] inspect_excel 실행
+ │      ├── 💥 파이썬 런타임 크래시 (BadZipFile: Not a zip file)
+ │      └── 🚨 [1차 백트랙: 시스템 자동 강제 롤백]
+ │            (작업공간 보호를 위해 턴 0으로 강제 복원 & Taboo List 등록)
+ │
+ ├──▶ [Turn 2: 시도 B] 대안 경로(Plan B) 탐색
+ │      ├── 🧠 LLM 상황 분석(CoT): "Taboo를 확인했으나 다른 대안 파일/명령이 없음"
+ │      └── 🛑 [2차 백트랙: LLM 자율 도구 호출]
+ │            backtrack(reason="막다른 길: 유효하지 않은 파일")
+ │            (이 탐색 가지를 공식 폐쇄/Pruning하고 트리 정리)
+ │
+ └──▶ [Turn 3: 최종 상태]
+        └── 📋 모든 분기 폐쇄 확인 후 "손상된 파일" 최종 보고 및 안전 종료
+```
+
+- **1차 백트랙 (턴 1)**: 물리적 런타임 예외 발생 시 워크스페이스 오염 방지를 위한 **"시스템 안전망의 응급 탈출"**.
+- **2차 백트랙 (턴 2)**: 롤백 후 대안이 없음을 파악한 LLM이 해당 탐색 분기를 공식적으로 쳐내는(Pruning) **"LLM의 논리적 탐색 가지 폐쇄"**.
+
+#### 2. 단축 탈출(Fast-Fail) 규칙 도입 시 치명적 트레이드오프 (Trade-off Matrix)
+
+단일 실패 작업에서 턴 2의 중복 백트랙 호출을 줄이기 위해 *"대안이 없을 때는 backtrack 도구를 부르지 말고 즉시 final_answer로 종료하라"*는 단축 탈출 규칙(Fast-Fail Rule)을 프롬프트에 추가할 경우, 다음과 같은 아키텍처적 트레이드오프가 발생합니다:
+
+| 평가 항목 | [방안 A] 현재 원칙 유지 (명시적 백트랙 수렴) | [방안 B] 단축 탈출 규칙 (Fast-Fail) 도입 |
+| :--- | :--- | :--- |
+| **작동 방식** | 대안이 없어도 `backtrack()`을 호출하여 분기를 공식 닫고 최종 보고로 이동 (3턴) | 대안이 없어 보이면 백트랙 도구 생략하고 즉시 실패 보고로 직행 (2턴) |
+| **장점** | ① **성급한 조기 포기(Premature Surrender) 원천 방지**<br>② 상태 관리 및 롤백 라이프사이클의 완전한 일관성<br>③ 복합 다단계 태스크에서 끝까지 대안을 완주 | ① 단순 실패 케이스에서 **1턴 절약**<br>(로컬 14B 기준 4~6초 및 토큰 절감) |
+| **치명적 위험<br>(Trade-off)** | 대안이 원천적으로 없는 단순 실패 케이스에서 1턴(수 초)이 추가 소모됨 | 🚨 **"게으른 에이전트(Lazy Agent)" 현상 발생 위험**<br>실제로는 다른 도구(`scan_directory`로 비슷한 파일 찾기, 확장자 교체 등)로 **해결 가능한 우회로가 존재함에도 "대안이 없다"고 지레짐작하여 작업을 쉽게 포기해버릴 확률이 급증함.** |
+| **프롬프트 복잡도** | 단순 명료: *"막다른 길에서는 backtrack 도구 호출"* | 조건부 예외 누적: *"단, 대안이 진짜 없을 때는 부르지 말고..."* ➔ **14B급 로컬 모델 지시 준수율 저하 및 환각 유발** |
+
+#### 3. 설계 결정 (Architectural Decision)
+- **결정**: **[방안 A] 명시적 백트랙 트리 탐색 원칙을 기본값으로 유지.**
+- **사유**: 자율 에이전트 SaaS의 핵심 가치는 **"회복 탄력성(Resilience)과 끈기 있는 자율 해결력"**에 있습니다. 단순 실패에서 5초를 줄이기 위해, 해결 가능한 복잡한 실무 업무에서 에이전트가 섣불리 작업을 포기하는 리스크를 감수하는 것은 득보다 실이 큽니다.
+
+---
+
 ## 4. 백트래킹 실행 시퀀스 다이어그램
 
 ```mermaid
@@ -353,175 +397,6 @@ sequenceDiagram
     end
     Agent-->>User: 최종 산출물 보고서 반환
 ```
-
----
-
-## 5. 기존 코드베이스 대비 변경점 및 모듈 구성
-
-| 모듈 경로 | 주요 변경 및 신규 추가 역할 |
-|---|---|
-| `src/jarvis/brain/memory.py` [NEW] | `WorkingMemory`, `Milestone` Pydantic 모델, 칠판 텍스트 포맷터, 태그 파서 |
-| `src/jarvis/brain/checkpoint.py` [NEW] | `CheckpointManager`: 대화 인덱스 스냅샷, `taboo_list` 교훈 주입, 가지치기 |
-| `src/jarvis/brain/evaluator.py` [NEW] | `HybridEvaluator`: 파이썬 룰 검사기(exit code, 파일 존재, 루프 감지), 재시도 예산 추적 |
-| `src/jarvis/infra/staging.py` [NEW] | `ShadowWorkspace`: `.jarvis/staging` 격리, 원자적 덮어쓰기(Commit), 롤백 폐기 |
-| `src/jarvis/brain/agent.py` [MODIFY] | ReAct 루프를 [계층 계획 ➔ KV 프롬프트 조립 ➔ 격리 실행 ➔ 평가 ➔ 커밋/롤백] 구조로 리팩토링 |
-
----
-   - `messages = messages[:checkpoint.message_index]`
-   - 실패 시도 중에 발생했던 수십 줄의 에러 메시지와 오염된 도구 호출 로그를 대화 기록에서 깨끗하게 절단.
-2. **실패 원인 1~2줄 요약 주입 (Taboo Injection)**:
-   - 칠판 상태를 직전 체크포인트로 복구하되, `taboo_list`에 실패 원인을 1~2줄 핵심 교훈으로 주입.
-   - *(예: `"2024_03.csv는 인코딩이 CP949이며 컬럼이 비어있음 - 동일 방식으로 재접근 금지"`)*
-3. **Staging 격리 폐기 (Staging Cleanup)**:
-   - 실패한 분기에서 `.jarvis/staging/`에 생성된 깨진 파일들을 즉시 삭제/초기화.
-
-#### 3. 재시도 예산 (Retry Budget):
-- **분기점당 최대 재시도**: 2회
-- **태스크 전체 최대 백트래킹**: 5회
-- **예산 초과 시**: 에이전트가 무한 루프를 돌지 않고 즉시 멈추며, 사용자에게 구체적인 실패 요약과 함께 대안 방향을 질의(User Intervention).
-
----
-
-### 3.7. 계층형 지연 계획 (Hierarchical Deferred Planning)
-
-1. **1턴 (Initial Goal Refinement)**:
-   - 사용자 입력을 받자마자 도구를 실행하지 않고, 사용자 목표를 정제하여 3~5개의 고수준 마일스톤을 칠판에 수립.
-   - *(예: 1단계 환경 및 대상 파일 조사 ➔ 2단계 데이터 가공 ➔ 3단계 종합 보고서 작성)*
-2. **지연된 세부 구현 (Deferred Execution)**:
-   - 세부 도구 체이닝은 해당 마일스톤에 실제로 진입했을 때 턴 단위로 동적 수립.
-   - 불필요한 사전 과대 계획(Over-planning) 및 환각을 방지.
-
----
-
-## 4. 백트래킹 실행 시퀀스 다이어그램
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as "사용자"
-    participant Agent as "Jarvis Agent Core"
-    participant Prompt as "프롬프트 빌더 (KV-Cache)"
-    participant LLM as "LLM Brain"
-    participant Shadow as "Shadow Staging (.jarvis/staging)"
-    participant Eval as "하이브리드 평가자"
-    participant CP as "체크포인트 매니저"
-
-    User->>Agent: 명령 전달 ("영수증 정리해서 summary.xlsx 생성해줘")
-    Agent->>Agent: 1턴: 고수준 마일스톤 3단계 수립 및 CP_0 저장
-    
-    loop 마일스톤 실행 루프
-        Agent->>Prompt: Prefix(불변) + Blackboard(동적) 결합
-        Prompt->>LLM: 최적화된 프롬프트 전송 (Cache Hit)
-        LLM-->>Agent: thought / blackboard 태그 및 tool_call (시도 A)
-        
-        Agent->>Shadow: 격리 폴더에서 도구 실행
-        Shadow-->>Eval: 실행 결과 (Observation)
-        
-        alt 1차 룰 검증 실패 (오류 발생)
-| 저장 시점 (Trigger) | 생성 조건 및 사유 | 스냅샷 식별자 예시 |
-|---|---|---|
-| **1. 시작 초기점** | 1턴에서 요청 구체화 및 고수준 마일스톤 수립 직후 | `cp_0_init` |
-| **2. 마일스톤 완료점** | 특정 마일스톤 작업이 끝나고 **1차 룰 검증(Green)을 통과한 직후** | `cp_1_milestone_1_done` |
-| **3. 원자적 커밋 직후** | Staging 임시 파일들이 실제 사용자 디스크로 동기화(Commit)된 직후 | `cp_2_commit_summary_xlsx` |
-| **4. 비가역 액션 직전** | 파일 삭제/외부 전송 등 Human-in-the-loop 승인 요청 직전 | `cp_pre_delete_backup` |
-
-> 🚫 **저장하지 않는 시점 (Skip Policy - 오버헤드 0)**:
-> - 단순 파일 읽기(`read_file`), 디렉터리 조회(`scan_directory`), 검색 등의 Read-only 턴
-> - 도구 실행 결과 에러(`exit_code != 0`)가 발생한 실패 턴 (오염된 상태는 절대 체크포인트로 만들지 않음)
-
-##### 2. Level 2: 전제 붕괴 시 Root 체크포인트 롤백 (Root Rollback & Re-generation)
-- **상황**: 초기 가설 자체가 완전히 틀려 현재 마일스톤 구조로는 도저히 목표를 달성할 수 없는 경우 (예: "텍스트 파싱 계획을 세웠으나 실제 파일은 OCR이 필요한 이미지 스캔본").
-- **동작**:
-  1. LLM이 `<blackboard>status: "DEAD_END", scope: "GLOBAL_PLAN"</blackboard>` 선언 또는 동일 마일스톤 2회 연속 실패.
-  2. 시스템이 `cp_0_init` (시작점)으로 완전 롤백.
-  3. 실패 시도의 대화창 오염 로그는 전량 삭제(Context Pruning).
-  4. **★ 핵심 보존 원칙**: 실패 시도 중에 얻은 **핵심 발견 사항(`key_findings: {file_type: "scanned_image"}`)**과 **실패 교훈(`taboo_list: ["일반 텍스트 파서 접근 금지 - OCR 필요"]`)**은 초기화하지 않고 칠판에 그대로 유지!
-  5. LLM은 보존된 교훈을 프롬프트에서 확인하고, 1턴에서 완전히 새로운 마일스톤 계획(Plan B)을 즉시 재생성하여 출발.
-
-##### 3. Level 3: 사용자 에스컬레이션 (Human Escalation)
-- Root 전면 재계획은 **태스크당 최대 1회**로 엄격히 제한.
-- 1회 전면 재계획 후에도 또다시 전제 붕괴가 발생할 경우, 모델이 억지로 추론을 반복하지 않고 사용자에게 현재 상황과 막힌 원인을 보고하고 대화로 개입 요청.
-
----
-
-## 4. 백트래킹 실행 시퀀스 다이어그램
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User as "사용자"
-    participant Agent as "Jarvis Agent Core"
-    participant Prompt as "프롬프트 빌더 (KV-Cache)"
-    participant LLM as "LLM Brain"
-    participant Shadow as "Shadow Staging (.jarvis/staging)"
-    participant Eval as "하이브리드 평가자"
-    participant CP as "체크포인트 매니저"
-
-    User->>Agent: 명령 전달 ("영수증 정리해서 summary.xlsx 생성해줘")
-    Agent->>Agent: 1턴: 고수준 마일스톤 3단계 수립 및 CP_0 저장
-    
-    loop 마일스톤 실행 루프
-        Agent->>Prompt: Prefix(불변) + Blackboard(동적) 결합
-        Prompt->>LLM: 최적화된 프롬프트 전송 (Cache Hit)
-        LLM-->>Agent: thought / blackboard 태그 및 tool_call (시도 A)
-        
-        Agent->>Shadow: 격리 폴더에서 도구 실행
-        Shadow-->>Eval: 실행 결과 (Observation)
-        
-        alt 1차 룰 검증 실패 (오류 발생)
-            Eval-->>Agent: 실패 감지 (연속 2회 실패)
-            Agent->>CP: Rollback(CP_0) 요청
-            CP->>Agent: messages 길이 가지치기 (오염 로그 삭제)
-            CP->>Agent: taboo_list에 "시도 A 실패 원인(1줄)" 주입
-            CP->>Shadow: Staging 임시 파일 파기
-            Note over Agent,LLM: 이전 안전 상태로 완벽 복원 후 대안(Plan B) 탐색
-        else 1차 및 2차 검증 통과 (성공)
-            Eval-->>Agent: 검증 Pass
-            Agent->>Shadow: 실제 사용자 워크스페이스로 원자적 커밋
-            Agent->>CP: 새로운 체크포인트 CP_1 저장
-        end
-    end
-    Agent-->>User: 최종 산출물 보고서 반환
-```
-
----
-
-## 5. 기존 코드베이스 대비 변경점 및 모듈 구성
-
-| 모듈 경로 | 주요 변경 및 신규 추가 역할 |
-|---|---|
-| `src/jarvis/brain/memory.py` [NEW] | `WorkingMemory`, `Milestone` Pydantic 모델, 칠판 텍스트 포맷터, 태그 파서 |
-| `src/jarvis/brain/checkpoint.py` [NEW] | `CheckpointManager`: 대화 인덱스 스냅샷, `taboo_list` 교훈 주입, 가지치기 |
-| `src/jarvis/brain/evaluator.py` [NEW] | `HybridEvaluator`: 파이썬 룰 검사기(exit code, 파일 존재, 루프 감지), 재시도 예산 추적 |
-| `src/jarvis/infra/staging.py` [NEW] | `ShadowWorkspace`: `.jarvis/staging` 격리, 원자적 덮어쓰기(Commit), 롤백 폐기 |
-| `src/jarvis/brain/agent.py` [MODIFY] | ReAct 루프를 [계층 계획 ➔ KV 프롬프트 조립 ➔ 격리 실행 ➔ 평가 ➔ 커밋/롤백] 구조로 리팩토링 |
-
----
-
-## 6. 구현 로드맵 (TDD 중심 단계별 계획)
-
-- [ ] **Phase 1: WorkingMemory & KV 캐시 렌더러 구현 (TDD)**
-  - `tests/unit/test_memory.py` 작성
-  - `WorkingMemory` 스키마 및 `<thought>`, `<blackboard>` 파서 구현
-  - Prefix 불변 캐시 영역과 동적 칠판 주입 렌더링 검증
-- [ ] **Phase 2: Shadow Staging 및 파일 트랜잭션 관리자 (TDD)**
-  - `tests/unit/test_staging.py` 작성
-  - 임시 디렉터리 생성, 파일 생성 격리, 원자적 동기화(Commit), 롤백 파기 기능 검증
-  - 비가역 작업(삭제, 외부 전송) 차단 및 승인 인터페이스 연동
-- [ ] **Phase 3: Checkpoint & Context Pruning 백트래킹 엔진 (TDD)**
-  - `tests/unit/test_checkpoint.py` 작성
-  - 스냅샷 생성, 메시지 히스토리 가지치기(오염 로그 제거), `taboo_list` 1줄 요약 주입 검증
-- [ ] **Phase 4: Hybrid Evaluator & 재시도 예산 관리자 (TDD)**
-  - `tests/unit/test_evaluator.py` 작성
-  - 도구 에러/루프 감지 룰 및 분기당 2회/총 5회 예산 초과 방어 로직 검증
-- [ ] **Phase 5: JarvisAgent 메인 루프 통합 및 고난도 시나리오 검증**
-  - `tests/integration/test_agent_backtracking.py`
-  - 일부러 깨진 파일/잘못된 경로를 제공하고 스스로 롤백하여 대안을 찾아 완주하는 실전 테스트 수행
-
-    Agent-->>User: 최종 산출물 보고서 반환
-```
-
----
 
 ---
 

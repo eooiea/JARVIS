@@ -11,6 +11,7 @@ from jarvis.tools.registry import ToolRegistry
 from jarvis.tools.filesystem import scan_directory, read_file, write_file
 from jarvis.tools.vision import analyze_document, batch_analyze_documents, capture_screen
 from jarvis.tools.office import create_excel, inspect_excel, get_courier_preset, transform_excel, batch_transform_orders
+from jarvis.tools.system import backtrack
 from jarvis.brain.agent import JarvisAgent
 from jarvis.utils.session_logger import SessionLogger
 from jarvis.guardrails.killswitch import KillSwitch, EmergencyStopException
@@ -208,6 +209,7 @@ class JarvisPipeline:
         self.registry.register(safe_transform_excel, name="transform_order_excel")
         self.registry.register(safe_batch_transform_orders, name="batch_transform_orders")
         self.registry.register(safe_batch_transform_orders, name="transform_orders_to_invoice")
+        self.registry.register(backtrack, name="backtrack")
 
     def execute_instruction(
         self,

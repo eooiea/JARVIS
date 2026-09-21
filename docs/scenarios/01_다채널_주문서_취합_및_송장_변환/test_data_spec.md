@@ -1,7 +1,7 @@
 # 🧪 시나리오 1: 테스트 입력 데이터셋 및 기대 결과 명세
 
 > **위치**: `orders/*.xlsx`  
-> **생성 스크립트**: [`scripts/generate_scenario1_mock_data.py`](file:///c:/Coding/jarvis/scripts/generate_scenario1_mock_data.py)  
+> **생성 스크립트**: [`scripts/generate_scenario1_mock_data.py`](../../scripts/generate_scenario1_mock_data.py)  
 > **목적**: LLM API 키나 외부 서버(Ollama 등) 없이도 로컬 오프라인 환경에서 100% 재현 가능한 다채널 주문서 취합 및 송장 변환 파이프라인 검증용
 
 ---

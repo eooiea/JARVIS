@@ -93,8 +93,10 @@ class TestAgentBacktrackingIntegration:
         def fallback_search(keyword: str):
             return ["found_target.xlsx"]
 
+        from jarvis.tools.system import backtrack
         registry.register(scan_dir)
         registry.register(fallback_search)
+        registry.register(backtrack)
 
         mock_provider = MagicMock()
         mock_provider.chat_with_tools.side_effect = [
@@ -104,17 +106,10 @@ class TestAgentBacktrackingIntegration:
                 tool_calls=[ToolCall(name="scan_dir", args={"path": "."})],
                 text=None,
             ),
-            # Turn 2: LLM sees empty_folder and declares DEAD_END
+            # Turn 2: LLM sees empty_folder and calls backtrack tool
             AgentResponse(
-                thought=(
-                    "<thought>대상 파일이 없습니다. DEAD_END 선언합니다.</thought>\n"
-                    "<blackboard>\n"
-                    "phase: SEARCH\n"
-                    "status: DEAD_END\n"
-                    "dead_end_reason: 폴더가 비어있어 파일 탐색 불가능\n"
-                    "</blackboard>"
-                ),
-                tool_calls=[],
+                thought="대상 파일이 없습니다. 직전 체크포인트로 롤백합니다.",
+                tool_calls=[ToolCall(name="backtrack", args={"reason": "폴더가 비어있어 파일 탐색 불가능"})],
                 text=None,
             ),
             # Turn 3: LLM executes fallback search
